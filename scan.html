@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code Scanner</title>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #00d2ff, #3a7bd5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            background: #fff;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+            width: 350px;
+            text-align: center;
+        }
+
+        h2 {
+            font-size: 1.6em;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        input, button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 15px;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        input {
+            border: 2px solid #ccc;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            border-color: #4CAF50;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:active {
+            background-color: #388e3c;
+        }
+
+        .message {
+            font-size: 14px;
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .message-success {
+            /*background-color: #2196F3; /* Blue for success */
+            color: green;
+        }
+
+        .message-already {
+     /*       background-color: #FFEB3B; /* Yellow for already scanned */
+            color: yellow;
+        }
+
+        .message-error {
+         /*   background-color: #f44336; /* Red for error */
+            color: rgb(23, 23, 23);
+            font-size: larger;
+        }
+
+        video {
+            width: 100%;
+            margin-top: 20px;
+            border-radius: 10px;
+            border: 3px solid #ddd;
+        }
+
+        .scanner-container {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                width: 90%;
+                padding: 20px;
+            }
+
+            h2 {
+                font-size: 1.4em;
+            }
+
+            input, button {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="loginContainer" class="container">
+    <h2>Login</h2>
+    <input type="text" id="username" placeholder="Username">
+    <input type="password" id="password" placeholder="Password">
+    <button onclick="login()">Log In</button>
+    <p id="loginMessage" class="message"></p>
+</div>
+
+<div id="scannerContainer" class="container scanner-container">
+    <h2>QR Scanner / Manual</h2>
+    <video id="video" autoplay></video>
+    <input type="text" id="ticketCode" placeholder="Enter Ticket Code">
+    <button onclick="submitTicket()">Submit</button>
+    <button onclick="logout()">Logout</button>
+    <p id="scanMessage" class="message"></p>
+</div>
+
+<script>
+    const validCredentials = { username: "admin", password: "123" };
+    let scannedTickets = JSON.parse(localStorage.getItem("scannedTickets") || "[]");
+
+    const login = () => {
+        const username = document.getElementById("username").value;
+        const password = document.getElementById("password").value;
+        const msg = document.getElementById("loginMessage");
+
+        if (username === validCredentials.username && password === validCredentials.password) {
+            localStorage.setItem("loggedIn", "true");
+            toggleViews(true);
+            startScanner();
+        } else {
+            msg.textContent = "Invalid credentials!";
+            msg.className = "message message-error";
+        }
+    };
+
+    const logout = () => {
+        localStorage.removeItem("loggedIn");
+        toggleViews(false);
+        const video = document.getElementById("video");
+        video.srcObject?.getTracks().forEach(track => track.stop());
+    };
+
+    const toggleViews = (loggedIn) => {
+        document.getElementById("loginContainer").style.display = loggedIn ? "none" : "block";
+        document.getElementById("scannerContainer").style.display = loggedIn ? "block" : "none";
+    };
+
+    const startScanner = () => {
+        const video = document.getElementById("video");
+        const msg = document.getElementById("scanMessage");
+
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+            .then(stream => {
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    scanQRCode();
+                };
+            })
+            .catch(error => {
+                console.error("Camera access error:", error);
+                msg.textContent = "Camera access denied or unavailable!";
+                msg.className = "message message-error";
+            });
+    };
+
+    let lastScanTime = 0; // Track the last scan time
+const SCAN_COOLDOWN = 2000; // Cooldown period in milliseconds (2 seconds)
+
+const scanQRCode = () => {
+    const video = document.getElementById("video");
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const scan = () => {
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+            const currentTime = Date.now();
+            if (code && currentTime - lastScanTime > SCAN_COOLDOWN) {
+                lastScanTime = currentTime;
+                validateTicket(code.data.trim());
+            }
+        }
+        requestAnimationFrame(scan);
+    };
+
+    scan();
+};
+
+    const submitTicket = () => {
+        const ticketCode = document.getElementById("ticketCode").value.trim();
+        if (!ticketCode) {
+            displayMessage("Please enter a ticket code.", "error");
+            return;
+        }
+        validateTicket(ticketCode);
+    };
+
+    const validateTicket = (ticketCode) => {
+    const msg = document.getElementById("scanMessage");
+
+    if (scannedTickets.includes(ticketCode)) {
+        displayMessage(`Ticket ${ticketCode} already scanned!`, "already");
+    } else {
+        fetch("validate_ticket.php", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: `ticketCode=${encodeURIComponent(ticketCode)}`
+        })
+            .then(response => response.json())
+            .then(data => {
+                // Check the exact structure of the response from your PHP server
+                if (data.status === "scanned_successfully") {
+                    scannedTickets.push(ticketCode);
+                    localStorage.setItem("scannedTickets", JSON.stringify(scannedTickets));
+                    displayMessage(`Ticket ${ticketCode} scanned successfully!`, "success");
+                } else if (data.status === "not_found") {
+                    displayMessage("Invalid ticket code!", "error");
+                } else {
+                    displayMessage(data.message || "Validation error. Please try again.", "error");
+                }
+            })
+            .catch(() => {
+                displayMessage("Failed to validate the ticket. Please try again.", "error");
+            });
+    }
+};
+    const displayMessage = (text, type) => {
+        const msg = document.getElementById("scanMessage");
+        msg.textContent = text;
+        msg.className = `message message-${type}`;
+    };
+
+    if (localStorage.getItem("loggedIn") === "true") {
+        toggleViews(true);
+        startScanner();
+    } else {
+        toggleViews(false);
+    }
+</script>
+
+</body>
+</html>
